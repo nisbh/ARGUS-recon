@@ -9,3 +9,5 @@ class Device:
     vendor: str = "Unknown"
     first_seen: Optional[str] = None
     last_seen: Optional[str] = None
+    is_local_admin: bool = False
+    hostname: str = ""

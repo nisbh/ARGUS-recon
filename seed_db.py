@@ -1,5 +1,7 @@
+import argparse
 import json
 import os
+import sqlite3
 
 from tabulate import tabulate
 
@@ -12,8 +14,25 @@ def load_config(config_path: str) -> dict:
         return json.load(config_file)
 
 
+def clear_devices_table(db_path: str) -> None:
+    connection = sqlite3.connect(db_path)
+    cursor = connection.cursor()
+    cursor.execute("DELETE FROM devices")
+    connection.commit()
+    connection.close()
+    print("Database cleared.")
+
+
 # Assumption: this utility intentionally omits KeyboardInterrupt handling per the seed_db-specific requirement.
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Seed ARGUS-RECON devices table")
+    parser.add_argument(
+        "--clear",
+        action="store_true",
+        help="Delete existing rows from devices before seeding.",
+    )
+    args = parser.parse_args()
+
     script_dir = os.path.dirname(os.path.abspath(__file__))
     config_path = os.path.join(script_dir, "config.json")
     config = load_config(config_path)
@@ -21,6 +40,9 @@ def main() -> None:
     db_path = os.path.abspath(os.path.join(script_dir, config["db_path"]))
 
     init_db(db_path)
+
+    if args.clear:
+        clear_devices_table(db_path)
 
     # Assumption: tabulate is imported here to satisfy the required output format.
     fake_devices = [

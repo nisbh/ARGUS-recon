@@ -1,13 +1,17 @@
 import os
 import re
+import sys
 
 
 def load_oui(oui_path: str) -> dict:
     oui_db = {}
 
     if not os.path.exists(oui_path):
-        print(f"Warning: OUI file not found at {oui_path}.")
-        return oui_db
+        print(f"[ARGUS-RECON] ERROR: oui.txt not found at {oui_path}")
+        print(
+            "Download it with: wget -O oui.txt https://www.wireshark.org/download/automated/data/manuf"
+        )
+        sys.exit(1)
 
     with open(oui_path, "r", encoding="utf-8", errors="ignore") as oui_file:
         for line in oui_file:
