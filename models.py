@@ -11,3 +11,5 @@ class Device:
     last_seen: Optional[str] = None
     is_local_admin: bool = False
     hostname: str = ""
+    status: str = "UNKNOWN"
+    os_guess: str = "Unknown"
