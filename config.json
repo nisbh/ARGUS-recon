@@ -1,6 +1,0 @@
-{
-  "interface": "wlp2s0",
-  "gateway_ip": "10.24.64.1",
-  "subnet": "10.24.64.0/24",
-  "db_path": "argus.db"
-}
