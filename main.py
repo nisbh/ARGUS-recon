@@ -72,6 +72,10 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    if os.geteuid() != 0:
+        print("ARP scanning requires root privileges. Run with sudo.")
+        sys.exit(1)
+
     try:
         if args.rescan:
             while True:
@@ -83,6 +87,9 @@ def main() -> None:
     except KeyboardInterrupt:
         print("Scan stopped. Database saved.")
         sys.exit(0)
+    except ValueError as error:
+        print(f"Scan configuration error: {error}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
