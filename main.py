@@ -10,7 +10,10 @@ from datetime import datetime
 from tabulate import tabulate
 
 from db import get_all_devices, init_db, upsert_device
+from enrichment import mdns_lookup, netbios_lookup
+from fingerprint import guess_os
 from models import Device
+from probe import probe_host
 from scanner import scan_network
 from vendor_lookup import get_vendor, load_oui
 
@@ -56,6 +59,15 @@ def resolve_hostname(ip_address: str) -> str:
         return ""
 
 
+def format_status_for_display(status: str) -> str:
+    normalized_status = status.upper() if status else "UNKNOWN"
+    if normalized_status == "ACTIVE":
+        return "✓ ACTIVE"
+    if normalized_status == "STALE":
+        return "✗ STALE"
+    return "  UNKNOWN"
+
+
 def print_device_table(devices: list[Device]) -> list[list[str]]:
     table_data = []
     for device in devices:
@@ -66,6 +78,8 @@ def print_device_table(devices: list[Device]) -> list[list[str]]:
                 device.mac,
                 device.vendor,
                 device.hostname,
+                device.os_guess,
+                format_status_for_display(device.status),
                 device.first_seen,
                 device.last_seen,
                 flags,
@@ -81,6 +95,8 @@ def print_device_table(devices: list[Device]) -> list[list[str]]:
                 "MAC Address",
                 "Vendor",
                 "Hostname",
+                "OS Guess",
+                "Status",
                 "First Seen",
                 "Last Seen",
                 "Flags",
@@ -102,6 +118,8 @@ def write_csv_report(table_data: list[list[str]]) -> str:
                 "MAC Address",
                 "Vendor",
                 "Hostname",
+                "OS Guess",
+                "Status",
                 "First Seen",
                 "Last Seen",
                 "Flags",
@@ -117,6 +135,7 @@ def run_scan_cycle(
     db_path: str,
     oui_db: dict,
     output_format: str | None,
+    no_probe: bool,
 ) -> None:
     scanned_devices = scan_network(interface, subnet)
     scanned_by_mac = {}
@@ -124,6 +143,27 @@ def run_scan_cycle(
     for device in scanned_devices:
         device.vendor = get_vendor(device.mac, oui_db)
         device.hostname = resolve_hostname(device.ip)
+
+        if not device.hostname:
+            mdns_hostname = mdns_lookup(device.ip)
+            if mdns_hostname:
+                device.hostname = mdns_hostname
+            else:
+                netbios_hostname = netbios_lookup(device.ip)
+                if netbios_hostname:
+                    device.hostname = netbios_hostname
+
+        if no_probe:
+            device.status = "UNKNOWN"
+            device.os_guess = "Unknown"
+        else:
+            is_active = probe_host(device.ip)
+            if is_active:
+                device.status = "ACTIVE"
+                device.os_guess = guess_os(device.ip)
+            else:
+                device.status = "STALE"
+                device.os_guess = "Unknown"
 
         if is_locally_administered_mac(device.mac):
             device.is_local_admin = True
@@ -138,6 +178,8 @@ def run_scan_cycle(
         if scanned_device is not None:
             device.hostname = scanned_device.hostname
             device.is_local_admin = scanned_device.is_local_admin
+            device.status = scanned_device.status
+            device.os_guess = scanned_device.os_guess
             if scanned_device.is_local_admin:
                 device.vendor = "Unknown (randomised MAC)"
         elif is_locally_administered_mac(device.mac):
@@ -175,6 +217,11 @@ def main() -> None:
         choices=["csv"],
         help="Write scan output to CSV after each scan cycle.",
     )
+    parser.add_argument(
+        "--no-probe",
+        action="store_true",
+        help="Disable ICMP probing and TTL fingerprinting.",
+    )
     args = parser.parse_args()
 
     config_interface = config["interface"]
@@ -207,6 +254,7 @@ def main() -> None:
     init_db(db_path)
 
     print(f"[ARGUS-RECON] Scanning {subnet} on interface {interface}")
+    print(f"[ARGUS-RECON] Host probing: {'DISABLED' if args.no_probe else 'ENABLED'}")
 
     if os.geteuid() != 0:
         print("ARP scanning requires root privileges. Run with sudo.")
@@ -216,10 +264,10 @@ def main() -> None:
         if args.rescan:
             while True:
                 os.system("clear")
-                run_scan_cycle(interface, subnet, db_path, oui_db, args.output)
+                run_scan_cycle(interface, subnet, db_path, oui_db, args.output, args.no_probe)
                 time.sleep(60)
         else:
-            run_scan_cycle(interface, subnet, db_path, oui_db, args.output)
+            run_scan_cycle(interface, subnet, db_path, oui_db, args.output, args.no_probe)
     except KeyboardInterrupt:
         print("Scan stopped. Database saved.")
         sys.exit(0)
