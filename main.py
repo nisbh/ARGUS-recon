@@ -235,10 +235,8 @@ def main() -> None:
 
     # Assumption: "project directory" means the directory containing main.py.
     project_root = script_dir
-    if os.path.commonpath([project_root, db_path]) != project_root:
-        print(
-            "[ARGUS-RECON] ERROR: db_path resolves outside the project directory.\nCheck config.json."
-        )
+    if not db_path.endswith(".db"):
+        print("[ARGUS-RECON] ERROR: db_path must point to a .db file.")
         sys.exit(1)
 
     oui_path = os.path.join(script_dir, "oui.txt")
