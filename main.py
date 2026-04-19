@@ -9,7 +9,7 @@ from datetime import datetime
 
 from tabulate import tabulate
 
-from db import get_all_devices, init_db, upsert_device
+from db import get_all_devices, init_db, init_status_log, upsert_device
 from enrichment import mdns_lookup, netbios_lookup
 from fingerprint import guess_os
 from models import Device
@@ -250,6 +250,7 @@ def main() -> None:
     oui_db = load_oui(oui_path)
 
     init_db(db_path)
+    init_status_log(db_path)
 
     print(f"[ARGUS-RECON] Scanning {subnet} on interface {interface}")
     print(f"[ARGUS-RECON] Host probing: {'DISABLED' if args.no_probe else 'ENABLED'}")

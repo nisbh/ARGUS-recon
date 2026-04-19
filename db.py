@@ -41,14 +41,49 @@ def init_db(db_path: str) -> None:
     connection.close()
 
 
+def init_status_log(db_path: str) -> None:
+    connection = sqlite3.connect(db_path)
+    cursor = connection.cursor()
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS status_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_id INTEGER,
+            status TEXT,
+            timestamp TEXT
+        )
+        """
+    )
+    connection.commit()
+    connection.close()
+
+
+def insert_status_change(db_path: str, device_id: int, status: str) -> None:
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    connection = sqlite3.connect(db_path)
+    cursor = connection.cursor()
+    cursor.execute(
+        """
+        INSERT INTO status_log (device_id, status, timestamp)
+        VALUES (?, ?, ?)
+        """,
+        (device_id, status, timestamp),
+    )
+    connection.commit()
+    connection.close()
+
+
 def upsert_device(db_path: str, device: Device) -> None:
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     connection = sqlite3.connect(db_path)
     cursor = connection.cursor()
 
-    cursor.execute("SELECT id FROM devices WHERE mac = ?", (device.mac,))
+    cursor.execute("SELECT id, status FROM devices WHERE mac = ?", (device.mac,))
     existing_row = cursor.fetchone()
+    status_changed = False
+    status_change_device_id = None
+    status_change_value = None
 
     if existing_row is None:
         cursor.execute(
@@ -67,6 +102,8 @@ def upsert_device(db_path: str, device: Device) -> None:
             ),
         )
     else:
+        previous_status = existing_row[1] if existing_row[1] else "UNKNOWN"
+        new_status = device.status if device.status else "UNKNOWN"
         cursor.execute(
             """
             UPDATE devices
@@ -75,9 +112,20 @@ def upsert_device(db_path: str, device: Device) -> None:
             """,
             (device.ip, device.vendor, now, device.status, device.os_guess, device.mac),
         )
+        if new_status != previous_status:
+            status_changed = True
+            status_change_device_id = existing_row[0]
+            status_change_value = new_status
 
     connection.commit()
     connection.close()
+
+    if (
+        status_changed
+        and status_change_device_id is not None
+        and status_change_value is not None
+    ):
+        insert_status_change(db_path, status_change_device_id, status_change_value)
 
 
 def get_all_devices(db_path: str) -> list[Device]:
