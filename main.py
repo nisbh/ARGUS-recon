@@ -129,14 +129,13 @@ def write_csv_report(table_data: list[list[str]]) -> str:
     return filename
 
 
-def run_scan_cycle(
+def scan_and_upsert(
     interface: str,
     subnet: str,
     db_path: str,
     oui_db: dict,
-    output_format: str | None,
     no_probe: bool,
-) -> None:
+) -> dict[str, Device]:
     scanned_devices = scan_network(interface, subnet)
     scanned_by_mac = {}
 
@@ -172,6 +171,19 @@ def run_scan_cycle(
         upsert_device(db_path, device)
         scanned_by_mac[device.mac.lower()] = device
 
+    return scanned_by_mac
+
+
+def run_scan_cycle(
+    interface: str,
+    subnet: str,
+    db_path: str,
+    oui_db: dict,
+    output_format: str | None,
+    no_probe: bool,
+) -> None:
+    scanned_by_mac = scan_and_upsert(interface, subnet, db_path, oui_db, no_probe)
+
     devices_for_display = get_all_devices(db_path)
     for device in devices_for_display:
         scanned_device = scanned_by_mac.get(device.mac.lower())
@@ -192,6 +204,43 @@ def run_scan_cycle(
         print(f"[ARGUS-RECON] Report saved to {filename}")
 
 
+def print_watch_diff(previous_scan: dict[str, Device], current_scan: dict[str, Device]) -> None:
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print("-" * 50)
+    print(f"[ARGUS-RECON] Watch diff @ {timestamp}")
+
+    if not previous_scan:
+        print(f"No changes detected — {timestamp}")
+        return
+
+    changes_detected = False
+
+    for mac in sorted(current_scan):
+        current_device = current_scan[mac]
+        if mac not in previous_scan:
+            print(
+                f"[NEW]     {current_device.ip}  {current_device.mac}  {current_device.vendor}  {current_device.os_guess}"
+            )
+            changes_detected = True
+        else:
+            previous_status = previous_scan[mac].status or "UNKNOWN"
+            current_status = current_device.status or "UNKNOWN"
+            if previous_status != current_status:
+                print(
+                    f"[CHANGED] {current_device.ip}  {current_device.mac}  {previous_status} -> {current_status}"
+                )
+                changes_detected = True
+
+    for mac in sorted(previous_scan):
+        if mac not in current_scan:
+            previous_device = previous_scan[mac]
+            print(f"[GONE]    {previous_device.ip}  {previous_device.mac}")
+            changes_detected = True
+
+    if not changes_detected:
+        print(f"No changes detected — {timestamp}")
+
+
 def main() -> None:
     script_dir = os.path.dirname(os.path.abspath(__file__))
     config_path = os.path.join(script_dir, "config.json")
@@ -203,6 +252,11 @@ def main() -> None:
         "--rescan",
         action="store_true",
         help="Run scans continuously every 60 seconds.",
+    )
+    parser.add_argument(
+        "--watch",
+        action="store_true",
+        help="Print only changes between scans — new devices and status changes.",
     )
     parser.add_argument(
         "--interface",
@@ -223,6 +277,10 @@ def main() -> None:
         help="Disable ICMP probing and TTL fingerprinting.",
     )
     args = parser.parse_args()
+
+    if args.watch and args.rescan:
+        print("[ARGUS-RECON] ERROR: --watch and --rescan cannot be used together.")
+        sys.exit(1)
 
     config_interface = config["interface"]
     validate_interface_exists(config_interface)
@@ -264,6 +322,13 @@ def main() -> None:
             while True:
                 os.system("clear")
                 run_scan_cycle(interface, subnet, db_path, oui_db, args.output, args.no_probe)
+                time.sleep(60)
+        elif args.watch:
+            previous_scan = {}
+            while True:
+                current_scan = scan_and_upsert(interface, subnet, db_path, oui_db, args.no_probe)
+                print_watch_diff(previous_scan, current_scan)
+                previous_scan = current_scan
                 time.sleep(60)
         else:
             run_scan_cycle(interface, subnet, db_path, oui_db, args.output, args.no_probe)
